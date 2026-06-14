@@ -12,6 +12,8 @@ function ensureDir() {
 const defaultConfig = {
   dhanClientId: '',
   dhanToken: '',
+  dhanApiKey: '',
+  dhanApiSecret: '',
   aiKey: '',
   aiStyle: 'moderate',
   capital: 500000,
@@ -55,11 +57,15 @@ function saveConfig(cfg) {
   // Merge env vars as fallback (server-side keys take priority)
   if (process.env.DHAN_CLIENT_ID) cfg.dhanClientId = process.env.DHAN_CLIENT_ID;
   if (process.env.DHAN_ACCESS_TOKEN) cfg.dhanToken = process.env.DHAN_ACCESS_TOKEN;
+  if (process.env.DHAN_API_KEY) cfg.dhanApiKey = process.env.DHAN_API_KEY;
+  if (process.env.DHAN_API_SECRET) cfg.dhanApiSecret = process.env.DHAN_API_SECRET;
   if (process.env.ANTHROPIC_API_KEY) cfg.aiKey = process.env.ANTHROPIC_API_KEY;
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
   // Sync to process.env for Dhan/AI clients
   if (cfg.dhanClientId) process.env.DHAN_CLIENT_ID = cfg.dhanClientId;
   if (cfg.dhanToken) process.env.DHAN_ACCESS_TOKEN = cfg.dhanToken;
+  if (cfg.dhanApiKey) process.env.DHAN_API_KEY = cfg.dhanApiKey;
+  if (cfg.dhanApiSecret) process.env.DHAN_API_SECRET = cfg.dhanApiSecret;
   if (cfg.aiKey) process.env.ANTHROPIC_API_KEY = cfg.aiKey;
   return cfg;
 }

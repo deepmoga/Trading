@@ -436,6 +436,15 @@
               <input type="password" id="cfg-dhan-token" class="form-input" placeholder="Paste your Access Token here"/>
               <div style="font-size:10px;color:var(--text3);margin-top:4px;">Dhan app → My Profile → DhanHQ APIs → Generate Access Token</div>
             </div>
+            <div class="form-group">
+              <label class="form-label">Dhan API Key</label>
+              <input type="text" id="cfg-dhan-apikey" class="form-input" placeholder="Dhan Partner API Key (optional)"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Dhan API Secret</label>
+              <input type="password" id="cfg-dhan-apisecret" class="form-input" placeholder="Dhan Partner API Secret (optional)"/>
+              <div style="font-size:10px;color:var(--text3);margin-top:4px;">Partner/OAuth API ko use karde ho ta eh fill karo, varna khali rehnde hai</div>
+            </div>
             <div style="display:flex;gap:8px;align-items:center;">
               <button class="btn btn-primary btn-sm" onclick="testDhanConnection()">🔌 Test Connection</button>
               <button class="btn btn-ghost btn-sm" onclick="fetchLiveData()">📡 Fetch Live Data</button>
@@ -620,6 +629,8 @@ async function initApp() {
 function applyConfigToForm(c) {
   setVal('cfg-dhan-client', c.dhanClientId || '');
   setVal('cfg-dhan-token',  c.dhanToken || '');
+  setVal('cfg-dhan-apikey',    c.dhanApiKey || '');
+  setVal('cfg-dhan-apisecret', c.dhanApiSecret || '');
   setVal('cfg-ai-key',      c.aiKey || '');
   setVal('cfg-ai-style',    c.aiStyle || 'moderate');
   setVal('cfg-capital',     c.capital || 500000);
@@ -641,8 +652,10 @@ function setCheck(id, v) { const el = document.getElementById(id); if(el) el.che
 
 async function saveAllSettings() {
   const newCfg = {
-    dhanClientId: getVal('cfg-dhan-client'),
-    dhanToken:    getVal('cfg-dhan-token'),
+    dhanClientId:   getVal('cfg-dhan-client'),
+    dhanToken:      getVal('cfg-dhan-token'),
+    dhanApiKey:     getVal('cfg-dhan-apikey'),
+    dhanApiSecret:  getVal('cfg-dhan-apisecret'),
     aiKey:        getVal('cfg-ai-key'),
     aiStyle:      getVal('cfg-ai-style'),
     capital:      +getVal('cfg-capital'),

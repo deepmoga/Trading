@@ -130,19 +130,23 @@ async function refreshLiveQuotes() {
 app.get('/api/config', (req, res) => {
   // Never send raw token/key to frontend — send masked
   const safe = { ...cfg };
-  if (safe.dhanToken) safe.dhanToken = safe.dhanToken.slice(0, 8) + '••••••••';
-  if (safe.aiKey)    safe.aiKey    = safe.aiKey.slice(0, 10) + '••••••••';
+  if (safe.dhanToken)     safe.dhanToken     = safe.dhanToken.slice(0, 8) + '••••••••';
+  if (safe.dhanApiSecret) safe.dhanApiSecret = safe.dhanApiSecret.slice(0, 4) + '••••••••';
+  if (safe.aiKey)         safe.aiKey         = safe.aiKey.slice(0, 10) + '••••••••';
   res.json(safe);
 });
 
 app.post('/api/config', (req, res) => {
   const incoming = req.body;
   // If masked value comes back, keep existing
-  if (!incoming.dhanToken || incoming.dhanToken.includes('••')) delete incoming.dhanToken;
-  if (!incoming.aiKey    || incoming.aiKey.includes('••'))    delete incoming.aiKey;
+  if (!incoming.dhanToken     || incoming.dhanToken.includes('••'))     delete incoming.dhanToken;
+  if (!incoming.dhanApiSecret || incoming.dhanApiSecret.includes('••')) delete incoming.dhanApiSecret;
+  if (!incoming.aiKey         || incoming.aiKey.includes('••'))         delete incoming.aiKey;
   cfg = saveConfig({ ...cfg, ...incoming });
   process.env.DHAN_CLIENT_ID    = cfg.dhanClientId;
   process.env.DHAN_ACCESS_TOKEN = cfg.dhanToken;
+  process.env.DHAN_API_KEY      = cfg.dhanApiKey;
+  process.env.DHAN_API_SECRET   = cfg.dhanApiSecret;
   process.env.ANTHROPIC_API_KEY = cfg.aiKey;
   res.json({ ok: true });
 });
