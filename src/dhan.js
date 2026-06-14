@@ -111,7 +111,19 @@ async function consumeConsent(tokenId, apiKey, apiSecret) {
   return res.data;
 }
 
+// Decode a JWT without verifying signature — used to read exp/iat for UI display
+function decodeToken(token) {
+  try {
+    const payload = token.split('.')[1];
+    const json = Buffer.from(payload, 'base64').toString('utf8');
+    return JSON.parse(json);
+  } catch (_) {
+    return null;
+  }
+}
+
 module.exports = {
+  decodeToken,
   getFunds,
   getPositions,
   getTradebook,

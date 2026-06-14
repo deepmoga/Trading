@@ -57,6 +57,30 @@ function hasDhan() {
   return !!(cfg.dhanClientId && cfg.dhanToken);
 }
 
+// Decode the saved JWT to figure out when it expires (Dhan partner-flow tokens
+// are typically valid for only 24h from login)
+function dhanTokenStatus() {
+  if (!cfg.dhanToken) return { configured: false, expired: true, expiry: null };
+  const payload = dhan.decodeToken(cfg.dhanToken);
+  if (!payload || !payload.exp) return { configured: true, expired: false, expiry: null };
+  const expiryMs = payload.exp * 1000;
+  return {
+    configured: true,
+    expired: Date.now() >= expiryMs,
+    expiry: new Date(expiryMs).toISOString(),
+    expiresInSec: Math.round((expiryMs - Date.now()) / 1000),
+  };
+}
+
+// Turn a Dhan API error into a friendly (Punjabi-ish) message for the UI
+function dhanErrorMessage(e) {
+  const code = e.response?.data?.errorCode;
+  if (code === 'DH-901' || e.response?.status === 401) {
+    return 'Dhan access token expire ho gaya hai. Settings vich jaa ke "Login with Dhan" button dabao te dobara login karo (token sirf 24 ghante valid rehnda hai).';
+  }
+  return e.response?.data?.message || e.response?.data?.errorMessage || e.message;
+}
+
 // Dhan security metadata per symbol (commodity futures roll monthly — resolved
 // dynamically from the instrument master once it loads, see refreshCommodityMeta)
 const DHAN_META = {
@@ -225,6 +249,11 @@ app.get('/api/dhan/oauth/callback', async (req, res) => {
   }
 });
 
+// Dhan token status — lets the frontend show "Token expired, please re-login"
+app.get('/api/dhan/status', (req, res) => {
+  res.json(dhanTokenStatus());
+});
+
 // Fund limit — test connection
 app.get('/api/funds', async (req, res) => {
   if (!hasDhan()) return res.status(400).json({ error: 'Dhan credentials not configured' });
@@ -232,7 +261,7 @@ app.get('/api/funds', async (req, res) => {
     const data = await dhan.getFunds();
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
@@ -243,7 +272,7 @@ app.get('/api/positions', async (req, res) => {
     const data = await dhan.getPositions();
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
@@ -257,7 +286,7 @@ app.get('/api/tradebook', async (req, res) => {
     const data = await dhan.getTradebook(fromDate, toDate);
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
@@ -268,7 +297,7 @@ app.post('/api/quotes', async (req, res) => {
     const data = await dhan.getQuotes(req.body);
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
@@ -399,7 +428,7 @@ app.post('/api/history', async (req, res) => {
       : await dhan.getHistoricalData(securityId, exchangeSegment, instrument, fromDate, toDate, resolution);
     res.json(data);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
@@ -439,7 +468,7 @@ app.get('/api/quote', async (req, res) => {
       },
     });
   } catch (e) {
-    res.status(500).json({ error: e.response?.data?.message || e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
@@ -460,7 +489,7 @@ app.get('/api/chart', async (req, res) => {
     const candles = parseDhanCandles(raw);
     res.json({ candles });
   } catch (e) {
-    res.status(500).json({ error: e.response?.data?.message || e.message });
+    res.status(500).json({ error: dhanErrorMessage(e) });
   }
 });
 
