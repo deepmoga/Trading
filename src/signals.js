@@ -130,6 +130,7 @@ function parseDhanCandles(raw) {
   const lows    = data.low    || data.lows    || [];
   const closes  = data.close  || data.closes  || [];
   const volumes = data.volume || data.volumes || [];
+  const times   = data.timestamp || data.timestamps || data.start_Time || [];
   const candles = [];
   const len = closes.length;
   for (let i = 0; i < len; i++) {
@@ -141,6 +142,7 @@ function parseDhanCandles(raw) {
       low:    +(lows[i]    || c),
       close:  c,
       volume: +(volumes[i] || 0),
+      time:   times[i] != null ? +times[i] : null,
     });
   }
   return candles;

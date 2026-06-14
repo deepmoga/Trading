@@ -150,6 +150,13 @@
   input:checked+.toggle-slider{background:var(--green);}
   input:checked+.toggle-slider:before{transform:translateX(16px);}
   .dhan-test-result{font-family:var(--font-mono);font-size:11px;margin-top:8px;padding:8px;border-radius:4px;background:var(--bg3);border:1px solid var(--border);}
+  .chart-search-results{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg2);border:1px solid var(--border);border-radius:6px;max-height:280px;overflow-y:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+  .chart-search-item{padding:8px 12px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);}
+  .chart-search-item:last-child{border-bottom:none;}
+  .chart-search-item:hover{background:var(--bg3);}
+  .chart-search-item .csi-name{font-weight:600;color:var(--text);}
+  .chart-search-item .csi-meta{color:var(--text3);font-family:var(--font-mono);font-size:10px;}
+  .chart-range.active{color:var(--accent);border-color:var(--accent);}
   @media(max-width:900px){
     .grid-4{grid-template-columns:repeat(2,1fr);}
     .grid-3{grid-template-columns:repeat(2,1fr);}
@@ -190,6 +197,7 @@
 
   <nav class="nav">
     <div class="nav-tab active" data-tab="overview">Overview</div>
+    <div class="nav-tab" data-tab="chart">📈 Chart</div>
     <div class="nav-tab" data-tab="signals">Signals</div>
     <div class="nav-tab" data-tab="positions">Positions</div>
     <div class="nav-tab" data-tab="trades">Trade Log</div>
@@ -267,6 +275,53 @@
       <div class="card">
         <div class="card-title">Open Positions</div>
         <div id="open-pos-list"><div class="loading"><div class="spinner"></div>Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- CHART / SEARCH -->
+    <div class="page" id="tab-chart">
+      <div class="card">
+        <div class="card-title">🔎 Search any symbol (stocks, indices, F&O, commodities)</div>
+        <div style="position:relative;max-width:420px;">
+          <input type="text" id="chart-search" class="form-input" placeholder="e.g. GOLD, RELIANCE, NIFTY, CRUDEOIL…" autocomplete="off" oninput="onChartSearchInput()"/>
+          <div id="chart-search-results" class="chart-search-results" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="card" id="chart-panel" style="display:none">
+        <div class="section-header">
+          <div>
+            <div class="section-title" id="chart-title">—</div>
+            <div style="font-size:11px;color:var(--text3);font-family:var(--font-mono);margin-top:2px;" id="chart-subtitle">—</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="stat-value" id="chart-ltp" style="font-size:24px;">—</div>
+            <div id="chart-change" style="font-size:13px;">—</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin:8px 0;">
+          <button class="btn btn-ghost btn-sm chart-range active" data-range="1d" onclick="setChartRange('1d')">1D</button>
+          <button class="btn btn-ghost btn-sm chart-range" data-range="5d" onclick="setChartRange('5d')">5D</button>
+          <button class="btn btn-ghost btn-sm chart-range" data-range="1m" onclick="setChartRange('1m')">1M</button>
+          <button class="btn btn-ghost btn-sm chart-range" data-range="3m" onclick="setChartRange('3m')">3M</button>
+          <button class="btn btn-ghost btn-sm chart-range" data-range="1y" onclick="setChartRange('1y')">1Y</button>
+          <button class="btn btn-ghost btn-sm" onclick="refreshChart()" style="margin-left:auto;">↻ Refresh</button>
+        </div>
+        <svg class="chart" id="price-svg" viewBox="0 0 600 220">
+          <defs>
+            <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.01"/>
+            </linearGradient>
+          </defs>
+          <g id="price-grid"></g>
+          <path class="chart-area" id="price-area"/>
+          <path class="chart-line" id="price-line"/>
+          <text class="chart-label" id="price-min" x="8" y="215"/>
+          <text class="chart-label" id="price-max" x="8" y="14"/>
+        </svg>
+        <div id="chart-loading" class="loading" style="display:none"><div class="spinner"></div>Loading chart…</div>
+        <div id="chart-empty" style="display:none;color:var(--text3);font-size:12px;padding:12px 0;"></div>
       </div>
     </div>
 
@@ -1190,6 +1245,154 @@ function drawEquityChart(data) {
   el.textContent=(pnl>=0?'+':'')+Math.round(pnl).toLocaleString('en-IN');
   el.className=pnl>=0?'up':'down';
 }
+
+// ── SYMBOL SEARCH + LIVE PRICE CHART ───────────────────────────────────────────
+let chartSearchTimer = null;
+let chartAutoRefresh = null;
+let selectedInstrument = null; // { symbol, name, securityId, exchangeSegment, instrument, expiry }
+let chartRange = '1d';
+
+function onChartSearchInput() {
+  const q = document.getElementById('chart-search').value.trim();
+  const box = document.getElementById('chart-search-results');
+  if (chartSearchTimer) clearTimeout(chartSearchTimer);
+  if (!q) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  chartSearchTimer = setTimeout(async () => {
+    try {
+      const res = await GET('/api/instruments/search?q=' + encodeURIComponent(q));
+      const items = res.data || [];
+      if (!items.length) {
+        box.innerHTML = `<div class="chart-search-item"><span class="csi-meta">${res.message || 'Koi match nahi mila'}</span></div>`;
+        box.style.display = 'block';
+        return;
+      }
+      box.innerHTML = items.map((it, i) => `
+        <div class="chart-search-item" onclick="selectInstrument(${i})">
+          <span class="csi-name">${it.symbol}${it.expiry ? ' <span class="csi-meta">(' + it.expiry + ')</span>' : ''}</span>
+          <span class="csi-meta">${it.instrument} · ${it.exchangeSegment}</span>
+        </div>`).join('');
+      box.style.display = 'block';
+      window._chartSearchItems = items;
+    } catch (e) {
+      box.innerHTML = `<div class="chart-search-item"><span class="csi-meta">Error: ${e.message}</span></div>`;
+      box.style.display = 'block';
+    }
+  }, 300);
+}
+
+function selectInstrument(i) {
+  const it = window._chartSearchItems[i];
+  if (!it) return;
+  selectedInstrument = it;
+  document.getElementById('chart-search-results').style.display = 'none';
+  document.getElementById('chart-search').value = it.symbol;
+  document.getElementById('chart-panel').style.display = '';
+  document.getElementById('chart-title').textContent = it.symbol + (it.expiry ? ' (' + it.expiry + ')' : '');
+  document.getElementById('chart-subtitle').textContent = `${it.instrument} · ${it.exchangeSegment} · Security ID ${it.securityId}`;
+  setChartRange('1d');
+}
+
+function setChartRange(range) {
+  chartRange = range;
+  document.querySelectorAll('.chart-range').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+  refreshChart();
+  if (chartAutoRefresh) clearInterval(chartAutoRefresh);
+  chartAutoRefresh = setInterval(refreshChart, 30000);
+}
+
+async function refreshChart() {
+  if (!selectedInstrument) return;
+  const { securityId, exchangeSegment, instrument } = selectedInstrument;
+  const loadingEl = document.getElementById('chart-loading');
+  const emptyEl = document.getElementById('chart-empty');
+  emptyEl.style.display = 'none';
+  loadingEl.style.display = 'flex';
+  try {
+    let url = `/api/chart?securityId=${securityId}&exchangeSegment=${exchangeSegment}&instrument=${instrument}`;
+    if (chartRange === '1d') url += '&resolution=5&days=1';
+    else if (chartRange === '5d') url += '&resolution=15&days=5';
+    else if (chartRange === '1m') url += '&days=30';
+    else if (chartRange === '3m') url += '&days=90';
+    else if (chartRange === '1y') url += '&days=365';
+
+    const [chartRes, quoteRes] = await Promise.all([
+      GET(url),
+      GET(`/api/quote?securityId=${securityId}&exchangeSegment=${exchangeSegment}`).catch(() => null),
+    ]);
+
+    if (chartRes.error) {
+      emptyEl.textContent = '⚠ ' + chartRes.error;
+      emptyEl.style.display = 'block';
+      document.getElementById('price-area').setAttribute('d', '');
+      document.getElementById('price-line').setAttribute('d', '');
+      return;
+    }
+    const candles = chartRes.candles || [];
+    if (candles.length < 2) {
+      emptyEl.textContent = 'Is symbol/range vaste data nahi mila (market closed ho sakda hai ya nayi/expired contract).';
+      emptyEl.style.display = 'block';
+      document.getElementById('price-area').setAttribute('d', '');
+      document.getElementById('price-line').setAttribute('d', '');
+    } else {
+      drawPriceChart(candles);
+    }
+
+    // LTP / change display
+    const q = quoteRes && quoteRes.data;
+    const last = candles[candles.length - 1];
+    const ltp = q?.ltp ?? last?.close;
+    const prevClose = q?.close ?? candles[0]?.open;
+    if (ltp != null) {
+      document.getElementById('chart-ltp').textContent = '₹' + (+ltp).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+      const chg = q?.change ?? (prevClose ? +(ltp - prevClose).toFixed(2) : 0);
+      const chgPct = q?.changePct ?? (prevClose ? +(((ltp - prevClose) / prevClose) * 100).toFixed(2) : 0);
+      const chEl = document.getElementById('chart-change');
+      chEl.textContent = `${chg >= 0 ? '+' : ''}${chg} (${chg >= 0 ? '+' : ''}${chgPct}%)`;
+      chEl.className = chg >= 0 ? 'up' : 'down';
+    }
+  } catch (e) {
+    emptyEl.textContent = '⚠ ' + e.message;
+    emptyEl.style.display = 'block';
+  } finally {
+    loadingEl.style.display = 'none';
+  }
+}
+
+function drawPriceChart(candles) {
+  const closes = candles.map(c => c.close);
+  const W = 600, H = 220, p = { t: 20, b: 20, l: 8, r: 8 };
+  const w = W - p.l - p.r, h = H - p.t - p.b;
+  const mn = Math.min(...closes), mx = Math.max(...closes), rng = (mx - mn) || 1;
+  const xs = i => p.l + (i / (closes.length - 1)) * w;
+  const ys = v => p.t + h - ((v - mn) / rng) * h;
+  const grid = document.getElementById('price-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = p.t + (i / 4) * h;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', p.l); line.setAttribute('x2', W - p.r);
+    line.setAttribute('y1', y); line.setAttribute('y2', y);
+    line.setAttribute('stroke', 'var(--border)'); line.setAttribute('stroke-width', '.5');
+    grid.appendChild(line);
+  }
+  const pts = closes.map((v, i) => `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ');
+  const first = `${xs(0).toFixed(1)},${(p.t + h).toFixed(1)}`;
+  const last = `${xs(closes.length - 1).toFixed(1)},${(p.t + h).toFixed(1)}`;
+  document.getElementById('price-area').setAttribute('fill', 'url(#priceGradient)');
+  document.getElementById('price-area').setAttribute('d', `M${first} L${pts.replace(/ /g, ' L')} L${last} Z`);
+  document.getElementById('price-line').setAttribute('d', `M${pts.replace(/ /g, ' L')}`);
+  const up = closes[closes.length - 1] >= closes[0];
+  document.getElementById('price-line').style.stroke = up ? 'var(--green)' : 'var(--red)';
+  document.getElementById('price-min').textContent = '₹' + mn.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  document.getElementById('price-max').textContent = '₹' + mx.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+// Hide search results dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  const box = document.getElementById('chart-search-results');
+  const input = document.getElementById('chart-search');
+  if (box && !box.contains(e.target) && e.target !== input) box.style.display = 'none';
+});
 
 // ── TICKER ────────────────────────────────────────────────────────────────────
 function buildTicker(signals) {

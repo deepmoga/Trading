@@ -10,6 +10,7 @@ const dhan = require('./src/dhan');
 const { SYMBOLS, BASE_LTP, computeSignal, simulateCandles, parseDhanCandles } = require('./src/signals');
 const { runBacktest } = require('./src/backtest');
 const { loadConfig, saveConfig, loadState, saveState } = require('./src/store');
+const instruments = require('./src/instruments');
 
 const app = express();
 app.use(cors());
@@ -56,7 +57,8 @@ function hasDhan() {
   return !!(cfg.dhanClientId && cfg.dhanToken);
 }
 
-// Dhan security metadata per symbol
+// Dhan security metadata per symbol (commodity futures roll monthly — resolved
+// dynamically from the instrument master once it loads, see refreshCommodityMeta)
 const DHAN_META = {
   NIFTY:       { id: '13',    exch: 'IDX_I',  instr: 'INDEX'  },
   BANKNIFTY:   { id: '25',    exch: 'IDX_I',  instr: 'INDEX'  },
@@ -67,6 +69,20 @@ const DHAN_META = {
   NATURALGAS:  { id: '10428', exch: 'MCX_FO', instr: 'FUTCOM' },
   COPPER:      { id: '10440', exch: 'MCX_FO', instr: 'FUTCOM' },
 };
+
+const COMMODITY_SYMBOLS = ['CRUDEOIL', 'GOLD', 'SILVER', 'NATURALGAS', 'COPPER'];
+
+// Re-resolve current-month futures contract IDs for commodities from the
+// instrument master (their security IDs change every month at expiry).
+function refreshCommodityMeta() {
+  if (!instruments.isReady()) return;
+  for (const sym of COMMODITY_SYMBOLS) {
+    const r = instruments.resolveSymbol(sym, 'MCX', 'FUTCOM');
+    if (r) {
+      DHAN_META[sym] = { id: r.securityId, exch: r.exchangeSegment, instr: r.instrument };
+    }
+  }
+}
 
 async function refreshSignals() {
   const signals = [];
@@ -97,31 +113,38 @@ async function refreshSignals() {
 async function refreshLiveQuotes() {
   if (!hasDhan()) return;
   try {
-    // Separate by exchange segment as Dhan API requires
-    const body = {
-      IDX_I:  ['13', '25', '51'],
-      MCX_FO: ['10596', '626', '3563', '10428', '10440'],
-    };
+    // Build request body + reverse symbol map dynamically from DHAN_META
+    // (segment -> [securityIds]) as Dhan's quote API requires
+    const body = {};
+    const symMap = {};
+    for (const [sym, meta] of Object.entries(DHAN_META)) {
+      if (!body[meta.exch]) body[meta.exch] = [];
+      body[meta.exch].push(String(meta.id));
+      symMap[String(meta.id)] = sym;
+    }
     const data = await dhan.getQuotes(body);
-    const quotes = data.data || {};
-    const symMap = {
-      '13':'NIFTY','25':'BANKNIFTY','51':'SENSEX',
-      '10596':'CRUDEOIL','626':'GOLD','3563':'SILVER','10428':'NATURALGAS','10440':'COPPER',
-    };
+    // Response shape: { data: { IDX_I: { "13": {...} }, MCX_FO: { "10596": {...} } } }
+    const quotesBySegment = data.data || {};
     let updated = 0;
-    for (const [sid, q] of Object.entries(quotes)) {
-      const sym = symMap[sid];
-      if (sym && q) {
-        liveQuotes[sym] = {
-          ltp:       q.last_price || q.ltp || BASE_LTP[sym],
-          change:    q.net_change || 0,
-          changePct: q.change_percentage || 0,
-          open:      q.open_price || 0,
-          high:      q.high_price || 0,
-          low:       q.low_price  || 0,
-          volume:    q.volume     || 0,
-        };
-        updated++;
+    for (const segQuotes of Object.values(quotesBySegment)) {
+      if (!segQuotes || typeof segQuotes !== 'object') continue;
+      for (const [sid, q] of Object.entries(segQuotes)) {
+        const sym = symMap[sid];
+        if (sym && q) {
+          const ltp = q.last_price ?? q.LTP ?? q.ltp ?? BASE_LTP[sym];
+          const close = q.close_price ?? q.ohlc?.close ?? null;
+          const open  = q.ohlc?.open  ?? q.open_price ?? 0;
+          const high  = q.ohlc?.high  ?? q.high_price ?? 0;
+          const low   = q.ohlc?.low   ?? q.low_price  ?? 0;
+          const netChange = q.net_change ?? (close ? +(ltp - close).toFixed(2) : 0);
+          const changePct = q.change_percentage ?? (close ? +(((ltp - close) / close) * 100).toFixed(2) : 0);
+          liveQuotes[sym] = {
+            ltp, change: netChange, changePct,
+            open, high, low,
+            volume: q.volume || 0,
+          };
+          updated++;
+        }
       }
     }
     if (updated > 0) broadcastSSE('quotes', liveQuotes);
@@ -380,6 +403,67 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
+// ── INSTRUMENT SEARCH & CHART ───────────────────────────────────────────────────
+// Search any tradable symbol (stocks, indices, commodity/index futures)
+app.get('/api/instruments/search', (req, res) => {
+  const q = req.query.q || '';
+  if (!instruments.isReady()) {
+    return res.json({ data: [], loading: true, message: 'Instrument list load ho rahi hai, thodi der baad try karo' });
+  }
+  res.json({ data: instruments.searchInstruments(q, 15) });
+});
+
+// Live quote for any instrument (by securityId + exchangeSegment)
+app.get('/api/quote', async (req, res) => {
+  const { securityId, exchangeSegment } = req.query;
+  if (!securityId || !exchangeSegment) return res.status(400).json({ error: 'securityId and exchangeSegment required' });
+  if (!hasDhan()) return res.status(400).json({ error: 'Dhan credentials not configured' });
+  try {
+    const body = { [exchangeSegment]: [String(securityId)] };
+    const data = await dhan.getQuotes(body);
+    const segQuotes = (data.data || {})[exchangeSegment] || {};
+    const q = segQuotes[String(securityId)] || null;
+    if (!q) return res.json({ data: null });
+    const ltp = q.last_price ?? q.LTP ?? q.ltp ?? null;
+    const close = q.close_price ?? q.ohlc?.close ?? null;
+    res.json({
+      data: {
+        ltp,
+        open:  q.ohlc?.open  ?? q.open_price ?? null,
+        high:  q.ohlc?.high  ?? q.high_price ?? null,
+        low:   q.ohlc?.low   ?? q.low_price  ?? null,
+        close,
+        change:    close ? +(ltp - close).toFixed(2) : 0,
+        changePct: close ? +(((ltp - close) / close) * 100).toFixed(2) : 0,
+        volume: q.volume || 0,
+      },
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
+// Chart candles for any instrument (intraday if resolution given, else daily)
+app.get('/api/chart', async (req, res) => {
+  const { securityId, exchangeSegment, instrument, resolution, days } = req.query;
+  if (!securityId || !exchangeSegment || !instrument) {
+    return res.status(400).json({ error: 'securityId, exchangeSegment, instrument required' });
+  }
+  if (!hasDhan()) return res.status(400).json({ error: 'Dhan credentials not configured' });
+  try {
+    const toDate = new Date().toISOString().split('T')[0];
+    const lookback = parseInt(days) || (resolution ? 5 : 90);
+    const fromDate = new Date(Date.now() - lookback * 86400000).toISOString().split('T')[0];
+    const raw = resolution
+      ? await dhan.getHistoricalData(securityId, exchangeSegment, instrument, fromDate, toDate, resolution)
+      : await dhan.getHistoricalDaily(securityId, exchangeSegment, instrument, fromDate, toDate);
+    const candles = parseDhanCandles(raw);
+    res.json({ candles });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data?.message || e.message });
+  }
+});
+
 // Backtest
 app.post('/api/backtest', async (req, res) => {
   const { symbol, candleCount } = req.body;
@@ -502,6 +586,9 @@ setInterval(() => refreshSignals(), 5 * 60 * 1000);
 // Save state every minute
 setInterval(() => saveState(state), 60000);
 
+// Refresh instrument master + commodity contract IDs once a day
+setInterval(() => instruments.loadInstruments().then(refreshCommodityMeta), 24 * 3600 * 1000);
+
 // ── SERVER START ──────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
@@ -514,4 +601,10 @@ server.listen(PORT, () => {
   console.log(`🤖 AI: ${cfg.aiKey ? '✓ Configured' : '✗ Not set (add to .env or Settings)'}\n`);
   // Initial signal load
   refreshSignals().catch(() => {});
+  // Load instrument master in background (for search/chart + commodity contract IDs)
+  instruments.loadInstruments().then(() => {
+    refreshCommodityMeta();
+    refreshSignals().catch(() => {});
+    refreshLiveQuotes().catch(() => {});
+  }).catch(() => {});
 });
