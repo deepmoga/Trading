@@ -1,6 +1,7 @@
 const axios = require('axios');
 
 const DHAN_BASE = 'https://api.dhan.co';
+const AUTH_BASE = 'https://auth.dhan.co';
 
 function getHeaders() {
   return {
@@ -79,6 +80,30 @@ async function cancelOrder(orderId) {
   return res.data;
 }
 
+// ── OAUTH / CONSENT FLOW (API Key + Secret → Access Token) ─────────────────────
+// Docs: https://dhanhq.co/docs/v2/authentication/
+// Step 1: generate-consent  → returns consentAppId
+// Step 2: user opens login URL in browser, logs in, redirected with tokenId
+// Step 3: consumeApp-consent with tokenId → returns accessToken
+
+async function generateConsent(clientId, apiKey, apiSecret) {
+  const res = await axios.post(`${AUTH_BASE}/app/generate-consent`, null, {
+    params: { client_id: clientId },
+    headers: { app_id: apiKey, app_secret: apiSecret },
+    timeout: 10000,
+  });
+  return res.data;
+}
+
+async function consumeConsent(tokenId, apiKey, apiSecret) {
+  const res = await axios.post(`${AUTH_BASE}/app/consumeApp-consent`, null, {
+    params: { tokenId },
+    headers: { app_id: apiKey, app_secret: apiSecret },
+    timeout: 10000,
+  });
+  return res.data;
+}
+
 module.exports = {
   getFunds,
   getPositions,
@@ -89,4 +114,6 @@ module.exports = {
   placeOrder,
   getOrders,
   cancelOrder,
+  generateConsent,
+  consumeConsent,
 };

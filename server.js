@@ -21,10 +21,14 @@ let cfg = loadConfig();
 // .env keys override saved config on startup
 if (process.env.DHAN_CLIENT_ID)   cfg.dhanClientId = process.env.DHAN_CLIENT_ID;
 if (process.env.DHAN_ACCESS_TOKEN) cfg.dhanToken   = process.env.DHAN_ACCESS_TOKEN;
+if (process.env.DHAN_API_KEY)     cfg.dhanApiKey    = process.env.DHAN_API_KEY;
+if (process.env.DHAN_API_SECRET)  cfg.dhanApiSecret = process.env.DHAN_API_SECRET;
 if (process.env.ANTHROPIC_API_KEY) cfg.aiKey       = process.env.ANTHROPIC_API_KEY;
 // Sync to process.env so dhan.js picks them up
 process.env.DHAN_CLIENT_ID    = cfg.dhanClientId;
 process.env.DHAN_ACCESS_TOKEN = cfg.dhanToken;
+process.env.DHAN_API_KEY      = cfg.dhanApiKey;
+process.env.DHAN_API_SECRET   = cfg.dhanApiSecret;
 process.env.ANTHROPIC_API_KEY = cfg.aiKey;
 
 let state = loadState();
@@ -149,6 +153,53 @@ app.post('/api/config', (req, res) => {
   process.env.DHAN_API_SECRET   = cfg.dhanApiSecret;
   process.env.ANTHROPIC_API_KEY = cfg.aiKey;
   res.json({ ok: true });
+});
+
+// ── DHAN OAUTH (API Key + Secret → Access Token) ───────────────────────────────
+// Step 1: frontend calls this, we generate consent, return the Dhan login URL
+app.get('/api/dhan/oauth/login', async (req, res) => {
+  try {
+    if (!cfg.dhanClientId || !cfg.dhanApiKey || !cfg.dhanApiSecret) {
+      return res.status(400).json({ error: 'Dhan Client ID, API Key aur API Secret pehla Settings vich save karo' });
+    }
+    const data = await dhan.generateConsent(cfg.dhanClientId, cfg.dhanApiKey, cfg.dhanApiSecret);
+    const consentAppId = data.consentAppId || data.consentId || data.consentApp_Id;
+    if (!consentAppId) {
+      return res.status(500).json({ error: 'Consent generate nahi hoya', raw: data });
+    }
+    const loginUrl = `https://auth.dhan.co/login/consentApp-login?consentAppId=${encodeURIComponent(consentAppId)}`;
+    res.json({ loginUrl });
+  } catch (e) {
+    res.status(500).json({ error: e.response?.data?.message || e.response?.data?.errorMessage || e.message, raw: e.response?.data });
+  }
+});
+
+// Step 3: Dhan redirects browser here after login with ?tokenId=...
+app.get('/api/dhan/oauth/callback', async (req, res) => {
+  const tokenId = req.query.tokenId || req.query.tokenID || req.query.token_id || req.query.tokenid;
+  try {
+    if (!tokenId) throw new Error('tokenId missing from Dhan redirect');
+    const data = await dhan.consumeConsent(tokenId, cfg.dhanApiKey, cfg.dhanApiSecret);
+    if (!data.accessToken) throw new Error('accessToken not returned: ' + JSON.stringify(data));
+    cfg.dhanToken = data.accessToken;
+    if (data.dhanClientId) cfg.dhanClientId = String(data.dhanClientId);
+    cfg = saveConfig({ ...cfg });
+    process.env.DHAN_ACCESS_TOKEN = cfg.dhanToken;
+    process.env.DHAN_CLIENT_ID = cfg.dhanClientId;
+    res.send(`<!DOCTYPE html><html><body style="background:#0a0c10;color:#22d3a8;font-family:monospace;padding:40px;text-align:center;">
+      <h2>✅ Dhan Login Successful!</h2>
+      <p>Access token generate ho gya te save ho gya hai.</p>
+      <p>Dashboard te wapas ja rahe ho...</p>
+      <script>setTimeout(function(){ window.location.href = '/?tab=settings'; }, 2500);</script>
+    </body></html>`);
+  } catch (e) {
+    const msg = e.response?.data ? JSON.stringify(e.response.data) : e.message;
+    res.status(500).send(`<!DOCTYPE html><html><body style="background:#0a0c10;color:#ff5a5a;font-family:monospace;padding:40px;text-align:center;">
+      <h2>❌ Dhan Login Failed</h2>
+      <pre style="white-space:pre-wrap;">${msg}</pre>
+      <a href="/?tab=settings" style="color:#22d3a8;">Back to dashboard</a>
+    </body></html>`);
+  }
 });
 
 // Fund limit — test connection
