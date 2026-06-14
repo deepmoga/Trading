@@ -75,7 +75,16 @@ function dhanTokenStatus() {
 // Turn a Dhan API error into a friendly (Punjabi-ish) message for the UI
 function dhanErrorMessage(e) {
   const code = e.response?.data?.errorCode;
-  if (code === 'DH-901' || e.response?.status === 401) {
+  const status = e.response?.status;
+  if (code === 'DH-901' || status === 401 || code === 'DH-905') {
+    // If our saved token is NOT expired (per its own JWT claims) but a market-data
+    // endpoint (quote/chart/feed) still rejects auth, it's almost always because
+    // the Dhan account doesn't have an active "Data API" subscription (₹499/mo) —
+    // Trading APIs (funds/orders/positions) work fine without it.
+    const ts = dhanTokenStatus();
+    if (ts.configured && !ts.expired) {
+      return 'Dhan "Data API" subscription active nahi hai (Live Market Feed / Historical Charts ke liye ₹499+GST/month subscription chahida hai). Dhan Web → My Profile → DhanHQ Trading APIs → "Data API Subscription" enable karo. (Funds/Orders/Positions free hai te kaam kar rahe hain.)';
+    }
     return 'Dhan access token expire ho gaya hai. Settings vich jaa ke "Login with Dhan" button dabao te dobara login karo (token sirf 24 ghante valid rehnda hai).';
   }
   return e.response?.data?.message || e.response?.data?.errorMessage || e.message;
