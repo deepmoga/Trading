@@ -495,25 +495,30 @@
             <div class="form-group">
               <label class="form-label">Dhan Access Token</label>
               <input type="password" id="cfg-dhan-token" class="form-input" placeholder="Paste your Access Token here"/>
-              <div style="font-size:10px;color:var(--text3);margin-top:4px;">Dhan app → My Profile → DhanHQ APIs → Generate Access Token</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Dhan API Key</label>
-              <input type="text" id="cfg-dhan-apikey" class="form-input" placeholder="Dhan Partner API Key (optional)"/>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Dhan API Secret</label>
-              <input type="password" id="cfg-dhan-apisecret" class="form-input" placeholder="Dhan Partner API Secret (optional)"/>
-              <div style="font-size:10px;color:var(--text3);margin-top:4px;">Partner/OAuth API ko use karde ho ta eh fill karo, varna khali rehnde hai</div>
+              <div style="font-size:10px;color:var(--text3);margin-top:4px;">Dhan web → My Profile → DhanHQ Trading APIs → Access Token → Generate (lambi validity wala token banao, e.g. 30 din / 1 saal)</div>
             </div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <button class="btn btn-primary btn-sm" onclick="saveAllSettings().then(loginWithDhan)">🔐 Login with Dhan (Get Token)</button>
-              <button class="btn btn-primary btn-sm" onclick="testDhanConnection()">🔌 Test Connection</button>
+              <button class="btn btn-primary btn-sm" onclick="saveAllSettings().then(testDhanConnection)">💾 Save & Test Connection</button>
               <button class="btn btn-ghost btn-sm" onclick="fetchLiveData()">📡 Fetch Live Data</button>
             </div>
-            <div style="font-size:10px;color:var(--text3);margin-top:4px;">"Login with Dhan" Client ID + API Key + API Secret save karke Dhan login khol dega — login karo te Access Token automatically save ho jayega.</div>
             <div id="dhan-test-result" class="dhan-test-result" style="display:none"></div>
             <div id="dhan-token-status" style="font-size:11px;margin-top:6px;"></div>
+
+            <details style="margin-top:10px;">
+              <summary style="cursor:pointer;color:var(--text3);font-size:11px;">⚙️ Advanced: Partner OAuth (API Key + Secret)</summary>
+              <div style="margin-top:8px;display:flex;flex-direction:column;gap:10px;">
+                <div class="form-group">
+                  <label class="form-label">Dhan API Key</label>
+                  <input type="text" id="cfg-dhan-apikey" class="form-input" placeholder="Dhan Partner API Key (optional)"/>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Dhan API Secret</label>
+                  <input type="password" id="cfg-dhan-apisecret" class="form-input" placeholder="Dhan Partner API Secret (optional)"/>
+                  <div style="font-size:10px;color:var(--text3);margin-top:4px;">Sirf OAuth/Partner login flow layi — yeh token sirf 24h chalda hai, isliye upar wala "Access Token" tarika simple & better hai.</div>
+                </div>
+                <button class="btn btn-primary btn-sm" style="width:fit-content" onclick="saveAllSettings().then(loginWithDhan)">🔐 Login with Dhan (OAuth)</button>
+              </div>
+            </details>
           </div>
         </div>
 
