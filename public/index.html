@@ -325,8 +325,8 @@
           </defs>
           <g id="price-grid"></g>
           <g id="price-candles"></g>
-          <text class="chart-label" id="price-min" x="8" y="375"/>
-          <text class="chart-label" id="price-max" x="8" y="14"/>
+          <g id="price-yaxis"></g>
+          <g id="price-xaxis"></g>
         </svg>
         <div class="chart-zoom-hint">🖱 Scroll = zoom in/out · Drag = pan</div>
         <div id="chart-loading" class="loading" style="display:none"><div class="spinner"></div>Loading chart…</div>
@@ -1411,32 +1411,70 @@ async function refreshChart() {
 
 // Draws a proper OHLC candlestick chart (green/red bodies + wicks), like a
 // real trading terminal — replaces the old simple line chart.
+// Includes a Y-axis (price) on the right and an X-axis (date/time) at the bottom.
 function drawPriceChart(candles) {
-  const W = 600, H = 220, p = { t: 20, b: 20, l: 8, r: 8 };
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 600, H = 380, p = { t: 10, b: 24, l: 8, r: 58 };
   const w = W - p.l - p.r, h = H - p.t - p.b;
   const highs = candles.map(c => c.high);
   const lows  = candles.map(c => c.low);
-  const mn = Math.min(...lows), mx = Math.max(...highs), rng = (mx - mn) || 1;
+  const mn = Math.min(...lows), mx = Math.max(...highs);
+  const pad = (mx - mn) * 0.05 || mx * 0.01 || 1;
+  const lo = mn - pad, hi = mx + pad, rng = (hi - lo) || 1;
   const n = candles.length;
   const slot = w / n;
   const bodyW = Math.max(1, Math.min(slot * 0.7, 10));
   const xs = i => p.l + i * slot + slot / 2;
-  const ys = v => p.t + h - ((v - mn) / rng) * h;
+  const ys = v => p.t + h - ((v - lo) / rng) * h;
 
-  // Grid lines
+  // Grid lines + Y-axis price labels (right side)
   const grid = document.getElementById('price-grid');
+  const yaxis = document.getElementById('price-yaxis');
   grid.innerHTML = '';
-  for (let i = 0; i <= 4; i++) {
-    const y = p.t + (i / 4) * h;
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  yaxis.innerHTML = '';
+  const steps = 5;
+  for (let i = 0; i <= steps; i++) {
+    const y = p.t + (i / steps) * h;
+    const line = document.createElementNS(NS, 'line');
     line.setAttribute('x1', p.l); line.setAttribute('x2', W - p.r);
     line.setAttribute('y1', y); line.setAttribute('y2', y);
     line.setAttribute('stroke', 'var(--border)'); line.setAttribute('stroke-width', '.5');
     grid.appendChild(line);
+
+    const price = hi - (i / steps) * (hi - lo);
+    const label = document.createElementNS(NS, 'text');
+    label.setAttribute('x', W - p.r + 4);
+    label.setAttribute('y', (y + 3).toFixed(1));
+    label.setAttribute('class', 'chart-label');
+    label.textContent = price.toLocaleString('en-IN', { maximumFractionDigits: price < 100 ? 2 : 0 });
+    yaxis.appendChild(label);
+  }
+
+  // X-axis date/time labels (bottom)
+  const xaxis = document.getElementById('price-xaxis');
+  xaxis.innerHTML = '';
+  const labelCount = Math.min(6, n);
+  const stepIdx = Math.max(1, Math.floor(n / labelCount));
+  for (let i = 0; i < n; i += stepIdx) {
+    const c = candles[i];
+    let txt = '';
+    if (c.time) {
+      const d = new Date(c.time * 1000);
+      txt = (chartRange === '1d' || chartRange === '5d')
+        ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
+        : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    }
+    if (!txt) continue;
+    const label = document.createElementNS(NS, 'text');
+    label.setAttribute('x', xs(i).toFixed(1));
+    label.setAttribute('y', H - 6);
+    label.setAttribute('class', 'chart-label');
+    label.setAttribute('text-anchor', 'middle');
+    label.textContent = txt;
+    xaxis.appendChild(label);
   }
 
   // Candlesticks
-  const NS = 'http://www.w3.org/2000/svg';
   const g = document.getElementById('price-candles');
   g.innerHTML = '';
   candles.forEach((c, i) => {
@@ -1463,9 +1501,6 @@ function drawPriceChart(candles) {
     rect.setAttribute('fill', color);
     g.appendChild(rect);
   });
-
-  document.getElementById('price-min').textContent = '₹' + mn.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-  document.getElementById('price-max').textContent = '₹' + mx.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
 // Renders the currently zoomed/panned slice of chartAllCandles
