@@ -33,6 +33,7 @@
   .api-badge{padding:3px 10px;border-radius:3px;font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.08em;}
   .api-badge.connected{background:rgba(0,230,118,.15);color:var(--green);border:1px solid rgba(0,230,118,.3);}
   .api-badge.disconnected{background:rgba(255,71,87,.15);color:var(--red);border:1px solid rgba(255,71,87,.3);}
+  .token-banner{display:flex;align-items:center;justify-content:center;gap:12px;background:rgba(255,71,87,.12);border-bottom:1px solid rgba(255,71,87,.35);color:var(--red);font-size:12px;padding:8px 16px;text-align:center;flex-wrap:wrap;}
   .market-status{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--text2);}
   .market-dot{width:7px;height:7px;border-radius:50%;}
   .market-dot.open{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s infinite;}
@@ -188,6 +189,11 @@
       <div class="mode-badge paper" id="mode-badge" onclick="toggleMode()">PAPER</div>
     </div>
   </header>
+
+  <div class="token-banner" id="token-banner" style="display:none">
+    <span>⚠ Dhan access token expire ho gaya hai (24h validity) — live data rukk gaya hai.</span>
+    <button class="btn btn-primary btn-sm" onclick="loginWithDhan()">🔐 Re-login with Dhan</button>
+  </div>
 
   <div class="ticker" id="ticker-wrap">
     <div class="ticker-inner" id="ticker-inner">
@@ -691,22 +697,26 @@ async function initApp() {
 async function checkDhanTokenStatus() {
   const el = document.getElementById('dhan-token-status');
   const db = document.getElementById('dhan-status-badge');
-  if (!el) return;
+  const banner = document.getElementById('token-banner');
   try {
     const st = await GET('/api/dhan/status');
     if (!st.configured) {
-      el.innerHTML = '';
+      if (el) el.innerHTML = '';
+      if (banner) banner.style.display = 'none';
       return;
     }
     if (st.expired) {
-      el.innerHTML = '⚠ <span style="color:var(--red)">Dhan access token expire ho gaya hai.</span> "Login with Dhan" button dabake dobara login karo (token sirf ~24 ghante valid rehnda hai).';
+      if (el) el.innerHTML = '⚠ <span style="color:var(--red)">Dhan access token expire ho gaya hai.</span> "Login with Dhan" button dabake dobara login karo (token sirf ~24 ghante valid rehnda hai).';
       if (db) { db.textContent = 'DHAN: ⚠ Token Expired'; db.className = 'api-badge disconnected'; }
+      if (banner) banner.style.display = 'flex';
     } else if (st.expiry) {
       const hrs = Math.max(0, Math.floor(st.expiresInSec / 3600));
       const mins = Math.max(0, Math.floor((st.expiresInSec % 3600) / 60));
-      el.innerHTML = `<span style="color:var(--green)">✓ Token valid</span> — expires in ${hrs}h ${mins}m`;
+      if (el) el.innerHTML = `<span style="color:var(--green)">✓ Token valid</span> — expires in ${hrs}h ${mins}m`;
+      if (banner) banner.style.display = 'none';
     } else {
-      el.innerHTML = '';
+      if (el) el.innerHTML = '';
+      if (banner) banner.style.display = 'none';
     }
   } catch (_) {}
 }
