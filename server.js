@@ -63,11 +63,11 @@ const DHAN_META = {
   NIFTY:       { id: '13',    exch: 'IDX_I',  instr: 'INDEX'  },
   BANKNIFTY:   { id: '25',    exch: 'IDX_I',  instr: 'INDEX'  },
   SENSEX:      { id: '51',    exch: 'IDX_I',  instr: 'INDEX'  },
-  CRUDEOIL:    { id: '10596', exch: 'MCX_FO', instr: 'FUTCOM' },
-  GOLD:        { id: '626',   exch: 'MCX_FO', instr: 'FUTCOM' },
-  SILVER:      { id: '3563',  exch: 'MCX_FO', instr: 'FUTCOM' },
-  NATURALGAS:  { id: '10428', exch: 'MCX_FO', instr: 'FUTCOM' },
-  COPPER:      { id: '10440', exch: 'MCX_FO', instr: 'FUTCOM' },
+  CRUDEOIL:    { id: '10596', exch: 'MCX_COMM', instr: 'FUTCOM' },
+  GOLD:        { id: '626',   exch: 'MCX_COMM', instr: 'FUTCOM' },
+  SILVER:      { id: '3563',  exch: 'MCX_COMM', instr: 'FUTCOM' },
+  NATURALGAS:  { id: '10428', exch: 'MCX_COMM', instr: 'FUTCOM' },
+  COPPER:      { id: '10440', exch: 'MCX_COMM', instr: 'FUTCOM' },
 };
 
 const COMMODITY_SYMBOLS = ['CRUDEOIL', 'GOLD', 'SILVER', 'NATURALGAS', 'COPPER'];

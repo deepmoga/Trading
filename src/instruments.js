@@ -19,7 +19,7 @@ const SEGMENT_MAP = {
   'BSE_E': 'BSE_EQ',
   'NSE_D': 'NSE_FNO',
   'BSE_D': 'BSE_FNO',
-  'MCX_M': 'MCX_FO',
+  'MCX_M': 'MCX_COMM',
   'NSE_C': 'NSE_CURRENCY',
   'BSE_C': 'BSE_CURRENCY',
 };
