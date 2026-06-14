@@ -87,6 +87,9 @@
   .btn-ai{background:linear-gradient(135deg,rgba(156,111,255,.2),rgba(0,212,255,.2));color:var(--purple);border:1px solid rgba(156,111,255,.4);}
   .btn-ai:hover{background:linear-gradient(135deg,rgba(156,111,255,.35),rgba(0,212,255,.35));}
   svg.chart{width:100%;height:200px;}
+  #price-svg{height:460px;cursor:grab;touch-action:none;}
+  #price-svg:active{cursor:grabbing;}
+  .chart-zoom-hint{font-size:10px;color:var(--text3);text-align:right;margin-top:4px;}
   .chart-line{fill:none;stroke:var(--accent);stroke-width:1.5;}
   .chart-area{fill:url(#areaGradient);}
   .chart-grid line{stroke:var(--border);stroke-width:.5;}
@@ -313,7 +316,7 @@
           <button class="btn btn-ghost btn-sm chart-range" data-range="1y" onclick="setChartRange('1y')">1Y</button>
           <button class="btn btn-ghost btn-sm" onclick="refreshChart()" style="margin-left:auto;">↻ Refresh</button>
         </div>
-        <svg class="chart" id="price-svg" viewBox="0 0 600 220">
+        <svg class="chart" id="price-svg" viewBox="0 0 600 380" preserveAspectRatio="none">
           <defs>
             <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.25"/>
@@ -322,9 +325,10 @@
           </defs>
           <g id="price-grid"></g>
           <g id="price-candles"></g>
-          <text class="chart-label" id="price-min" x="8" y="215"/>
+          <text class="chart-label" id="price-min" x="8" y="375"/>
           <text class="chart-label" id="price-max" x="8" y="14"/>
         </svg>
+        <div class="chart-zoom-hint">🖱 Scroll = zoom in/out · Drag = pan</div>
         <div id="chart-loading" class="loading" style="display:none"><div class="spinner"></div>Loading chart…</div>
         <div id="chart-empty" style="display:none;color:var(--text3);font-size:12px;padding:12px 0;"></div>
       </div>
@@ -1293,6 +1297,9 @@ let chartSearchTimer = null;
 let chartAutoRefresh = null;
 let selectedInstrument = null; // { symbol, name, securityId, exchangeSegment, instrument, expiry }
 let chartRange = '1d';
+let chartAllCandles = [];   // full candle set fetched from /api/chart
+let chartViewStart = 0;     // index of first visible candle (for pan)
+let chartViewCount = 0;     // number of visible candles (for zoom)
 
 function onChartSearchInput() {
   const q = document.getElementById('chart-search').value.trim();
@@ -1373,8 +1380,12 @@ async function refreshChart() {
       emptyEl.textContent = 'Is symbol/range vaste data nahi mila (market closed ho sakda hai ya nayi/expired contract).';
       emptyEl.style.display = 'block';
       document.getElementById('price-candles').innerHTML = '';
+      chartAllCandles = [];
     } else {
-      drawPriceChart(candles);
+      chartAllCandles = candles;
+      chartViewCount = candles.length;
+      chartViewStart = 0;
+      renderChartView();
     }
 
     // LTP / change display
@@ -1456,6 +1467,61 @@ function drawPriceChart(candles) {
   document.getElementById('price-min').textContent = '₹' + mn.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   document.getElementById('price-max').textContent = '₹' + mx.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
+
+// Renders the currently zoomed/panned slice of chartAllCandles
+function renderChartView() {
+  if (!chartAllCandles.length) return;
+  const total = chartAllCandles.length;
+  chartViewCount = Math.max(5, Math.min(chartViewCount || total, total));
+  chartViewStart = Math.max(0, Math.min(chartViewStart, total - chartViewCount));
+  const slice = chartAllCandles.slice(chartViewStart, chartViewStart + chartViewCount);
+  drawPriceChart(slice);
+}
+
+// ── ZOOM (scroll wheel) & PAN (drag) on the price chart ─────────────────────
+(function setupChartZoomPan() {
+  const svg = document.getElementById('price-svg');
+  if (!svg) return;
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartView = 0;
+
+  svg.addEventListener('wheel', (e) => {
+    if (!chartAllCandles.length) return;
+    e.preventDefault();
+    const total = chartAllCandles.length;
+    const factor = e.deltaY < 0 ? 0.85 : 1 / 0.85; // scroll up = zoom in
+    let newCount = Math.round(chartViewCount * factor);
+    newCount = Math.max(5, Math.min(total, newCount));
+    // Keep the right edge (most recent candles) anchored when zooming
+    const end = chartViewStart + chartViewCount;
+    chartViewCount = newCount;
+    chartViewStart = end - newCount;
+    renderChartView();
+  }, { passive: false });
+
+  svg.addEventListener('pointerdown', (e) => {
+    if (!chartAllCandles.length) return;
+    dragging = true;
+    dragStartX = e.clientX;
+    dragStartView = chartViewStart;
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener('pointermove', (e) => {
+    if (!dragging || !chartAllCandles.length) return;
+    const rect = svg.getBoundingClientRect();
+    const dx = e.clientX - dragStartX;
+    const candlesPerPx = chartViewCount / rect.width;
+    const shift = Math.round(-dx * candlesPerPx);
+    chartViewStart = dragStartView + shift;
+    renderChartView();
+  });
+  svg.addEventListener('pointerup', (e) => {
+    dragging = false;
+    try { svg.releasePointerCapture(e.pointerId); } catch (_) {}
+  });
+  svg.addEventListener('pointerleave', () => { dragging = false; });
+})();
 
 // Hide search results dropdown when clicking outside
 document.addEventListener('click', (e) => {
