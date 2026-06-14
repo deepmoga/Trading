@@ -38,18 +38,23 @@ async function getQuotes(body) {
   return dhanPost('/v2/marketfeed/quote', body);
 }
 
-// Intraday candles — resolution: '1','5','15','25','60'
+// Derivative instrument types need an expiryCode (0 = current/near month)
+const DERIVATIVE_INSTRUMENTS = new Set(['FUTCOM', 'FUTIDX', 'FUTSTK', 'OPTIDX', 'OPTSTK', 'OPTFUT', 'OPTCOM', 'OPTCUR', 'FUTCUR']);
+
+// Intraday candles — interval (minutes): '1','5','15','25','60'
 // exchangeSegment: IDX_I | NSE_FNO | MCX_FO | NSE_EQ | BSE_EQ
-// instrument: INDEX | FUTIDX | FUTSTK | FUTCOM | OPTIDX
-async function getHistoricalData(securityId, exchangeSegment, instrument, fromDate, toDate, resolution) {
+// instrument: INDEX | EQUITY | FUTIDX | FUTSTK | FUTCOM | OPTIDX
+async function getHistoricalData(securityId, exchangeSegment, instrument, fromDate, toDate, interval) {
   const body = {
     securityId:      String(securityId),
     exchangeSegment,
     instrument,
-    fromDate,
-    toDate,
-    resolution:      String(resolution),
+    interval:        String(interval),
+    oi:              false,
+    fromDate:        fromDate.length > 10 ? fromDate : `${fromDate} 00:00:00`,
+    toDate:          toDate.length > 10   ? toDate   : `${toDate} 23:59:59`,
   };
+  if (DERIVATIVE_INSTRUMENTS.has(instrument)) body.expiryCode = 0;
   return dhanPost('/v2/charts/intraday', body);
 }
 
@@ -59,9 +64,11 @@ async function getHistoricalDaily(securityId, exchangeSegment, instrument, fromD
     securityId:      String(securityId),
     exchangeSegment,
     instrument,
+    oi:              false,
     fromDate,
     toDate,
   };
+  if (DERIVATIVE_INSTRUMENTS.has(instrument)) body.expiryCode = 0;
   return dhanPost('/v2/charts/historical', body);
 }
 
