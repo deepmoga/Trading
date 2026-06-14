@@ -321,8 +321,7 @@
             </linearGradient>
           </defs>
           <g id="price-grid"></g>
-          <path class="chart-area" id="price-area"/>
-          <path class="chart-line" id="price-line"/>
+          <g id="price-candles"></g>
           <text class="chart-label" id="price-min" x="8" y="215"/>
           <text class="chart-label" id="price-max" x="8" y="14"/>
         </svg>
@@ -1366,16 +1365,14 @@ async function refreshChart() {
     if (chartRes.error) {
       emptyEl.textContent = '⚠ ' + chartRes.error;
       emptyEl.style.display = 'block';
-      document.getElementById('price-area').setAttribute('d', '');
-      document.getElementById('price-line').setAttribute('d', '');
+      document.getElementById('price-candles').innerHTML = '';
       return;
     }
     const candles = chartRes.candles || [];
     if (candles.length < 2) {
       emptyEl.textContent = 'Is symbol/range vaste data nahi mila (market closed ho sakda hai ya nayi/expired contract).';
       emptyEl.style.display = 'block';
-      document.getElementById('price-area').setAttribute('d', '');
-      document.getElementById('price-line').setAttribute('d', '');
+      document.getElementById('price-candles').innerHTML = '';
     } else {
       drawPriceChart(candles);
     }
@@ -1401,13 +1398,21 @@ async function refreshChart() {
   }
 }
 
+// Draws a proper OHLC candlestick chart (green/red bodies + wicks), like a
+// real trading terminal — replaces the old simple line chart.
 function drawPriceChart(candles) {
-  const closes = candles.map(c => c.close);
   const W = 600, H = 220, p = { t: 20, b: 20, l: 8, r: 8 };
   const w = W - p.l - p.r, h = H - p.t - p.b;
-  const mn = Math.min(...closes), mx = Math.max(...closes), rng = (mx - mn) || 1;
-  const xs = i => p.l + (i / (closes.length - 1)) * w;
+  const highs = candles.map(c => c.high);
+  const lows  = candles.map(c => c.low);
+  const mn = Math.min(...lows), mx = Math.max(...highs), rng = (mx - mn) || 1;
+  const n = candles.length;
+  const slot = w / n;
+  const bodyW = Math.max(1, Math.min(slot * 0.7, 10));
+  const xs = i => p.l + i * slot + slot / 2;
   const ys = v => p.t + h - ((v - mn) / rng) * h;
+
+  // Grid lines
   const grid = document.getElementById('price-grid');
   grid.innerHTML = '';
   for (let i = 0; i <= 4; i++) {
@@ -1418,14 +1423,36 @@ function drawPriceChart(candles) {
     line.setAttribute('stroke', 'var(--border)'); line.setAttribute('stroke-width', '.5');
     grid.appendChild(line);
   }
-  const pts = closes.map((v, i) => `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ');
-  const first = `${xs(0).toFixed(1)},${(p.t + h).toFixed(1)}`;
-  const last = `${xs(closes.length - 1).toFixed(1)},${(p.t + h).toFixed(1)}`;
-  document.getElementById('price-area').setAttribute('fill', 'url(#priceGradient)');
-  document.getElementById('price-area').setAttribute('d', `M${first} L${pts.replace(/ /g, ' L')} L${last} Z`);
-  document.getElementById('price-line').setAttribute('d', `M${pts.replace(/ /g, ' L')}`);
-  const up = closes[closes.length - 1] >= closes[0];
-  document.getElementById('price-line').style.stroke = up ? 'var(--green)' : 'var(--red)';
+
+  // Candlesticks
+  const NS = 'http://www.w3.org/2000/svg';
+  const g = document.getElementById('price-candles');
+  g.innerHTML = '';
+  candles.forEach((c, i) => {
+    const up = c.close >= c.open;
+    const color = up ? 'var(--green)' : 'var(--red)';
+    const x = xs(i);
+
+    // Wick (high-low line)
+    const wick = document.createElementNS(NS, 'line');
+    wick.setAttribute('x1', x.toFixed(1)); wick.setAttribute('x2', x.toFixed(1));
+    wick.setAttribute('y1', ys(c.high).toFixed(1)); wick.setAttribute('y2', ys(c.low).toFixed(1));
+    wick.setAttribute('stroke', color); wick.setAttribute('stroke-width', '1');
+    g.appendChild(wick);
+
+    // Body (open-close rect)
+    const yOpen = ys(c.open), yClose = ys(c.close);
+    const bodyTop = Math.min(yOpen, yClose);
+    const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+    const rect = document.createElementNS(NS, 'rect');
+    rect.setAttribute('x', (x - bodyW / 2).toFixed(1));
+    rect.setAttribute('y', bodyTop.toFixed(1));
+    rect.setAttribute('width', bodyW.toFixed(1));
+    rect.setAttribute('height', bodyH.toFixed(1));
+    rect.setAttribute('fill', color);
+    g.appendChild(rect);
+  });
+
   document.getElementById('price-min').textContent = '₹' + mn.toLocaleString('en-IN', { maximumFractionDigits: 2 });
   document.getElementById('price-max').textContent = '₹' + mx.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
